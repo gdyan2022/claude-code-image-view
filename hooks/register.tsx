@@ -1,6 +1,6 @@
 import type { Elements, Register } from 'claude-code'
 
-import { ensure, loadFile, loadInline, loadUrl, peek, type Entry, type Io } from './prepare'
+import { ensure, loadFile, loadInline, loadUrl, peek, workQueue, type Entry, type Io } from './prepare'
 import { isPersonalOrigin, resolveOutsideAutomounts } from './policy'
 import { decodedLength, findImageRefs, fitCells, imagesInOutput, type ImageRef } from './refs'
 import { isShownNow, parseSwitch } from './settings'
@@ -158,7 +158,7 @@ export const register: Register = (on, options) => {
       if (held === undefined && !isFetchAllowed) {
         return { key, label: ref.raw, remoteUrl: ref.raw }
       }
-      return { key, label: ref.raw, entry: held ?? ensure(host, key, () => loadUrl(host, ref.raw)) }
+      return { key, label: ref.raw, entry: held ?? ensure(key, () => loadUrl(host, ref.raw)) }
     }
 
     const found = await locate(host, ref.raw, home, cwd)
@@ -169,20 +169,20 @@ export const register: Register = (on, options) => {
     return {
       key,
       label: shortPath(found.path, home),
-      entry: ensure(host, key, () => loadFile(host, found.path, found.size, key)),
+      entry: ensure(key, () => loadFile(host, found.path, found.size, key)),
     }
   }
 
   const viewsOfOutput = (host: Io, id: string, tool: string, input: unknown, output: unknown): View[] =>
     imagesInOutput(tool, output).map((image, at) => {
       const key = `tool:${id}:${at}`
-      return { key, label: toolLabel(tool, input), entry: ensure(host, key, () => loadInline(host, image, key)) }
+      return { key, label: toolLabel(tool, input), entry: ensure(key, () => loadInline(host, image, key)) }
     })
 
   const loadRemote =
     (host: Io) =>
     (view: RemoteView): void => {
-      ensure(host, view.key, () => loadUrl(host, view.remoteUrl))
+      ensure(view.key, () => loadUrl(host, view.remoteUrl))
       host.redraw()
     }
 
@@ -199,6 +199,8 @@ export const register: Register = (on, options) => {
       redraw: () => $.ui.invalidate('ui.render'),
       cacheRoot: (await $.env.get('XDG_CACHE_HOME')) || `${home}/.cache`,
     }
+    // Pictures are prepared here, in session.start's dispatch, never in a render's.
+    void workQueue(io)
     await $.command.register({
       name: 'img',
       description: 'Show an image in the terminal: /img <path or http(s) URL>; /img off|on turns inline images off or on',

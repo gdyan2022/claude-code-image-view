@@ -1,6 +1,11 @@
 // Turning a reference into PNG bytes a terminal Image can show, off the
 // drawing path. Each picture is prepared once per key and kept in this
 // module; when one settles, every drawing of this plugin is redrawn.
+//
+// The work runs in a queue that session.start starts, never inside a render
+// hook: a host call belongs to the dispatch it was made in, and a render's
+// dispatch ends as soon as a newer drawing of the same row replaces it (a reply
+// is redrawn many times while it streams), aborting the calls still in flight.
 
 import type { EngineInterface } from 'claude-code'
 
@@ -60,7 +65,16 @@ const SIDES = [1600, 1000]
  */
 const MAX_HELD_CHARS = 256 * 1024 * 1024
 
+/** Aborted attempts per key before the failure is kept. */
+const MAX_ABORTS = 3
+
+type Job = { key: string; run: () => Promise<Picture> }
+
 const entries = new Map<string, Entry>()
+const aborts = new Map<string, number>()
+const queue: Job[] = []
+let wake: (() => void) | undefined
+let isWorking = false
 let heldChars = 0
 let cacheDir: Promise<string> | undefined
 let backend: Promise<Backend> | undefined
@@ -69,8 +83,11 @@ export function peek(key: string): Entry | undefined {
   return entries.get(key)
 }
 
-/** The entry under `key`, starting `job` the first time the key is asked for. */
-export function ensure(io: Io, key: string, job: () => Promise<Picture>): Entry {
+/**
+ * The entry under `key`, queueing `job` the first time the key is asked for.
+ * Makes no host call itself, so a render hook may call it.
+ */
+export function ensure(key: string, job: () => Promise<Picture>): Entry {
   const held = entries.get(key)
   if (held !== undefined) {
     return held
@@ -78,24 +95,56 @@ export function ensure(io: Io, key: string, job: () => Promise<Picture>): Entry 
 
   const pending: Entry = { status: 'pending' }
   entries.set(key, pending)
-
-  void job()
-    .then(
-      (picture): Entry => {
-        if (heldChars + picture.png.length > MAX_HELD_CHARS) {
-          return { status: 'failed', reason: 'the image cache for this session is full' }
-        }
-        heldChars += picture.png.length
-        return { status: 'ready', picture }
-      },
-      (error: unknown): Entry => ({ status: 'failed', reason: reasonOf(error) }),
-    )
-    .then(entry => {
-      entries.set(key, entry)
-      io.redraw()
-    })
+  queue.push({ key, run: job })
+  wake?.()
 
   return pending
+}
+
+/**
+ * Runs queued jobs for the rest of the module's life. Call it from session.start
+ * without awaiting: the jobs' host calls then belong to that dispatch, which
+ * outlives its hook, and not to the render that asked for them.
+ */
+export async function workQueue(io: Io): Promise<void> {
+  if (isWorking) {
+    return
+  }
+  isWorking = true
+
+  for (;;) {
+    const job = queue.shift()
+    if (job === undefined) {
+      await new Promise<void>(resolve => (wake = resolve))
+      wake = undefined
+      continue
+    }
+    void settle(io, job)
+  }
+}
+
+async function settle(io: Io, job: Job): Promise<void> {
+  const entry = await job.run().then(
+    (picture): Entry => {
+      if (heldChars + picture.png.length > MAX_HELD_CHARS) {
+        return { status: 'failed', reason: 'the image cache for this session is full' }
+      }
+      heldChars += picture.png.length
+      return { status: 'ready', picture }
+    },
+    (error: unknown): Entry => ({ status: 'failed', reason: reasonOf(error) }),
+  )
+
+  // An aborted call says nothing about the picture: forget it, and the next
+  // drawing asks again, up to a few times so a lasting abort cannot loop.
+  const tries = (aborts.get(job.key) ?? 0) + 1
+  if (entry.status === 'failed' && /\baborted\b/.test(entry.reason) && tries < MAX_ABORTS) {
+    aborts.set(job.key, tries)
+    entries.delete(job.key)
+  } else {
+    entries.set(job.key, entry)
+  }
+  io.redraw()
 }
 
 function reasonOf(error: unknown): string {
