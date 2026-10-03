@@ -1,7 +1,7 @@
 import type { Elements, Register } from 'claude-code'
 
 import { ensure, loadFile, loadInline, loadUrl, peek, type Entry, type Io } from './prepare'
-import { isPersonalOrigin, resolveOutsideAutomounts, type ResolvedStat } from './policy'
+import { isPersonalOrigin, resolveOutsideAutomounts } from './policy'
 import { findImageRefs, fitCells, imagesInOutput, type ImageRef } from './refs'
 
 const MAX_COLUMNS = 80
@@ -20,13 +20,7 @@ type Found = { path: string; size: number; version: string }
  * The file a path in a reply names, if it exists. A missing file shows nothing:
  * replies often name files not written yet, or only hypothetical ones.
  */
-async function locate(
-  io: Io,
-  raw: string,
-  home: string,
-  cwd: string,
-  dirs: Map<string, ResolvedStat>,
-): Promise<Found | undefined> {
+async function locate(io: Io, raw: string, home: string, cwd: string): Promise<Found | undefined> {
   let path = raw.replace(/^file:\/\//i, '')
   try {
     path = decodeURIComponent(path)
@@ -36,24 +30,20 @@ async function locate(
   if (path.startsWith('~/') && home !== '') {
     path = home + path.slice(1)
   }
-  // Directories rarely move within a session, so their resolution is kept;
-  // the file itself is stat'd every time, since its size and mtime are the key.
-  const stat = await resolveOutsideAutomounts(path, cwd, async candidate => {
-    const held = dirs.get(candidate)
-    if (held !== undefined) {
-      return held
-    }
-    const found = await io.stat(candidate).catch(() => undefined)
-    if (found?.kind === 'dir') {
-      dirs.set(candidate, found)
-    }
-    return found
+  // Walked afresh every time: nothing is cached, so a directory swapped for a
+  // link since the last look is seen as the link it now is.
+  const file = await resolveOutsideAutomounts(path, cwd, {
+    list: dir => io.list(dir).catch(() => undefined),
+    readlink: async link => {
+      const read = await io.run(['readlink', link]).catch(() => undefined)
+      return read?.exitCode === 0 ? read.stdout.replace(/\n$/, '') : undefined
+    },
   })
-  if (stat?.kind !== 'file') {
+  if (file === undefined) {
     return undefined
   }
 
-  return { path: stat.realPath, size: stat.size, version: `${stat.mtimeMs}-${stat.size}` }
+  return { path: file.realPath, size: file.size, version: `${file.mtimeMs}-${file.size}` }
 }
 
 function shortPath(path: string, home: string): string {
@@ -125,7 +115,6 @@ export const register: Register = (on, options) => {
   let io: Io | undefined
   let home = ''
   let cwd = '/'
-  const resolvedDirs = new Map<string, ResolvedStat>()
   /**
    * URLs the person asked for with /img themselves. A /img run can also come
    * from another session, a relayed channel, a scheduled task or a plugin;
@@ -144,7 +133,7 @@ export const register: Register = (on, options) => {
       return { key, label: ref.raw, entry: held ?? ensure(host, key, () => loadUrl(host, ref.raw)) }
     }
 
-    const found = await locate(host, ref.raw, home, cwd, resolvedDirs)
+    const found = await locate(host, ref.raw, home, cwd)
     if (found === undefined) {
       return undefined
     }
@@ -178,7 +167,7 @@ export const register: Register = (on, options) => {
     io = {
       run: (argv, init) => $.process.run(argv, init),
       readBytes: async path => (await $.fs.read(path, { as: 'bytes' })).base64,
-      stat: path => $.fs.stat(path, { resolve: true }),
+      list: dir => $.fs.list(dir),
       redraw: () => $.ui.invalidate('ui.render'),
       cacheRoot: (await $.env.get('XDG_CACHE_HOME')) || `${home}/.cache`,
     }
@@ -202,7 +191,7 @@ export const register: Register = (on, options) => {
       return { text: `Image: ${arg}` }
     }
 
-    const found = io === undefined ? undefined : await locate(io, arg, home, cwd, resolvedDirs)
+    const found = io === undefined ? undefined : await locate(io, arg, home, cwd)
     return { text: found === undefined ? `No image file at ${arg}` : `Image: ${found.path}` }
   })
 

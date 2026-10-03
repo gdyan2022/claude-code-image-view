@@ -26,52 +26,88 @@ export function isHostAutomount(absolute: string): boolean {
   return HOST_AUTOMOUNTS.some(root => lower === root || lower.startsWith(`${root}/`))
 }
 
-/** What `resolveOutsideAutomounts` needs from a stat: the engine's `$.fs.stat` with `resolve: true`. */
-export type ResolvedStat = { kind: 'file' | 'dir' | 'other'; size: number; mtimeMs: number; realPath?: string }
+/** One directory entry as it stands, links not followed: what `$.fs.list` answers. */
+export type DirEntry = { name: string; kind: 'file' | 'dir' | 'other'; size: number; mtimeMs: number; isLink: boolean }
+
+/** How a path is walked: listing a directory and reading a link, neither following a link. */
+export type Walker = {
+  list: (dir: string) => Promise<readonly DirEntry[] | undefined>
+  readlink: (link: string) => Promise<string | undefined>
+}
+
+export type ResolvedFile = { realPath: string; size: number; mtimeMs: number }
+
+/** The kernel's own cap on links followed while resolving one path. */
+const MAX_LINKS = 40
+
+const join = (dir: string, name: string): string => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 
 /**
- * Resolves `path` (relative to `cwd`) one component at a time, the way the
- * kernel does, and never stats a path under a host-keyed automount root.
+ * Resolves `path` (relative to `cwd`) to a regular file one component at a
+ * time, the way the kernel does, without ever following a link it has not
+ * checked first, and never lists, reads or stats anything under a host-keyed
+ * automount root.
  *
- * Checking the spelling alone is not enough: existing links reach the root
- * from elsewhere (`/Volumes/Macintosh HD` on macOS, `/proc/self/root` on
- * Linux), so `/Volumes/Macintosh HD/net/<host>/x.png` lands in `/net`. Each
- * component is checked against its parent's real path before it is touched,
- * then its own real path (links followed) becomes the next parent.
+ * A spelling check is not enough, since links to / exist on stock systems
+ * (`/Volumes/Macintosh HD`, `/proc/self/root`); and a stat follows a link
+ * before its target can be checked, so a link in a cloned repository
+ * (`docs/diagram.png -> /net/<host>/x.png`) would reach the automounter. Each
+ * component is looked up in its parent's listing, which shows a link as a
+ * link; a link's target is read with readlink and walked component by
+ * component the same way.
  *
- * @returns the final component's stat with its real path, or undefined when
- *   any component is missing or would land under an automount root
+ * @returns the file's real path, size and mtime, or undefined when a component
+ *   is missing, a link loops, the path ends anywhere but a regular file, or it
+ *   would reach an automount root
  */
-export async function resolveOutsideAutomounts(
-  path: string,
-  cwd: string,
-  stat: (path: string) => Promise<ResolvedStat | undefined>,
-): Promise<(ResolvedStat & { realPath: string }) | undefined> {
-  const full = path.startsWith('/') ? path : `${cwd}/${path}`
+export async function resolveOutsideAutomounts(path: string, cwd: string, walker: Walker): Promise<ResolvedFile | undefined> {
+  const pending = (path.startsWith('/') ? path : `${cwd}/${path}`).split('/')
   let current = '/'
-  let last: ResolvedStat | undefined
+  let links = 0
+  let file: DirEntry | undefined
 
-  for (const part of full.split('/')) {
+  while (pending.length > 0) {
+    const part = pending.shift() ?? ''
     if (part === '' || part === '.') {
       continue
     }
+    if (file !== undefined) {
+      return undefined
+    }
     if (part === '..') {
       current = current.slice(0, current.lastIndexOf('/')) || '/'
-      last = undefined
       continue
     }
 
-    const candidate = current === '/' ? `/${part}` : `${current}/${part}`
-    if (isHostAutomount(candidate)) {
+    if (isHostAutomount(join(current, part))) {
       return undefined
     }
-    const found = await stat(candidate)
-    if (found?.realPath === undefined || isHostAutomount(found.realPath)) {
+    const entries = await walker.list(current)
+    const wanted = part.normalize('NFC')
+    const entry = entries?.find(one => one.name.normalize('NFC') === wanted)
+    if (entry === undefined || isHostAutomount(join(current, entry.name))) {
       return undefined
     }
-    current = found.realPath
-    last = found
+
+    if (entry.isLink) {
+      links += 1
+      const target = links > MAX_LINKS ? undefined : await walker.readlink(join(current, entry.name))
+      if (target === undefined || target === '') {
+        return undefined
+      }
+      if (target.startsWith('/')) {
+        current = '/'
+      }
+      pending.unshift(...target.split('/'))
+    } else if (entry.kind === 'dir') {
+      current = join(current, entry.name)
+    } else if (entry.kind === 'file') {
+      current = join(current, entry.name)
+      file = entry
+    } else {
+      return undefined
+    }
   }
 
-  return last?.realPath === undefined ? undefined : { ...last, realPath: last.realPath }
+  return file === undefined ? undefined : { realPath: current, size: file.size, mtimeMs: file.mtimeMs }
 }

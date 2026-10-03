@@ -25,7 +25,8 @@ import { decodedLength, decodeHead, pngSize, type InlineImage } from './refs'
 export type Io = {
   run: EngineInterface['process']['run']
   readBytes: (path: string) => Promise<string>
-  stat: (path: string) => ReturnType<EngineInterface['fs']['stat']>
+  /** A directory's entries as they stand: links are listed as links, never followed. */
+  list: (dir: string) => ReturnType<EngineInterface['fs']['list']>
   redraw: () => void
   /**
    * Where converted and downloaded files go: under the user's own cache
