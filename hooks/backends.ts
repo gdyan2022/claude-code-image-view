@@ -94,3 +94,15 @@ export function convertArgv(
       return [backend, magickInput(source, format), '-auto-orient', '-resize', `${side}x${side}>`, `png:${out}`]
   }
 }
+
+/**
+ * Downloads one URL to `out`. `--globoff`: curl would otherwise expand `{a,b}`
+ * and `[1-100000]` in the URL into many requests, to many hosts. Only http and
+ * https, for the URL and for every redirect.
+ */
+export function fetchArgv(url: string, out: string): string[] {
+  return [
+    'curl', '--globoff', '--proto', '=http,https', '--proto-redir', '=http,https', '--max-redirs', '5',
+    '-fsSL', '--max-time', '20', '--max-filesize', String(25 * 1024 * 1024), '-o', out, url,
+  ]
+}

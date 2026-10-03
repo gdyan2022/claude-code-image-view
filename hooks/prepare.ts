@@ -8,6 +8,7 @@ import {
   BACKEND_PROBES,
   convertArgv,
   decodeArgv,
+  fetchArgv,
   headArgv,
   parseProbe,
   probeArgv,
@@ -196,7 +197,7 @@ export async function loadUrl(io: Io, url: string): Promise<Picture> {
   const name = await digest(url)
   const file = `${dir}/${name}.download`
   const fetched = await io.run(
-    ['curl', '-fsSL', '--max-time', '20', '--max-filesize', String(25 * 1024 * 1024), '-o', file, url],
+    fetchArgv(url, file),
     { timeoutMs: 30_000 },
   )
   if (fetched.exitCode !== 0) {

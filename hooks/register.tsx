@@ -1,7 +1,7 @@
 import type { Elements, Register } from 'claude-code'
 
 import { ensure, loadFile, loadInline, loadUrl, peek, type Entry, type Io } from './prepare'
-import { isPersonalOrigin } from './policy'
+import { absolutePath, isHostAutomount, isPersonalOrigin } from './policy'
 import { findImageRefs, fitCells, imagesInOutput, type ImageRef } from './refs'
 
 const MAX_COLUMNS = 80
@@ -20,7 +20,7 @@ type Found = { path: string; size: number; version: string }
  * The file a path in a reply names, if it exists. A missing file shows nothing:
  * replies often name files not written yet, or only hypothetical ones.
  */
-async function locate(io: Io, raw: string, home: string): Promise<Found | undefined> {
+async function locate(io: Io, raw: string, home: string, cwd: string): Promise<Found | undefined> {
   let path = raw.replace(/^file:\/\//i, '')
   try {
     path = decodeURIComponent(path)
@@ -29,6 +29,10 @@ async function locate(io: Io, raw: string, home: string): Promise<Found | undefi
   }
   if (path.startsWith('~/') && home !== '') {
     path = home + path.slice(1)
+  }
+  path = absolutePath(path, cwd)
+  if (isHostAutomount(path)) {
+    return undefined
   }
 
   const stat = await io.stat(path).catch(() => undefined)
@@ -107,6 +111,7 @@ export const register: Register = (on, options) => {
   // No io before session.start: until then the engine draws everything itself.
   let io: Io | undefined
   let home = ''
+  let cwd = '/'
   /**
    * URLs the person asked for with /img themselves. A /img run can also come
    * from another session, a relayed channel, a scheduled task or a plugin;
@@ -125,7 +130,7 @@ export const register: Register = (on, options) => {
       return { key, label: ref.raw, entry: held ?? ensure(host, key, () => loadUrl(host, ref.raw)) }
     }
 
-    const found = await locate(host, ref.raw, home)
+    const found = await locate(host, ref.raw, home, cwd)
     if (found === undefined) {
       return undefined
     }
@@ -155,6 +160,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     home = (await $.env.get('HOME')) ?? ''
+    cwd = e.cwd
     io = {
       run: (argv, init) => $.process.run(argv, init),
       readBytes: async path => (await $.fs.read(path, { as: 'bytes' })).base64,
@@ -182,7 +188,7 @@ export const register: Register = (on, options) => {
       return { text: `Image: ${arg}` }
     }
 
-    const found = io === undefined ? undefined : await locate(io, arg, home)
+    const found = io === undefined ? undefined : await locate(io, arg, home, cwd)
     return { text: found === undefined ? `No image file at ${arg}` : `Image: ${found.path}` }
   })
 

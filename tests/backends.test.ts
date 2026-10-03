@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { convertArgv, decodeArgv, headArgv, parseProbe, probeArgv, sniffFormat } from '../hooks/backends'
+import { convertArgv, decodeArgv, fetchArgv, headArgv, parseProbe, probeArgv, sniffFormat } from '../hooks/backends'
 
 const bytesOf = (text: string): number[] => Array.from(text, char => char.charCodeAt(0))
 
@@ -61,5 +61,16 @@ describe('command lines', () => {
     const tricky = '/tmp/a"; rm -rf ~; ".png'
     expect(headArgv(tricky)).toEqual(['sh', '-c', 'head -c 16 "$1" | base64', 'sh', tricky])
     expect(decodeArgv(tricky)).toEqual(['sh', '-c', 'base64 -d > "$1"', 'sh', tricky])
+  })
+})
+
+describe('fetchArgv', () => {
+  test('turns off URL globbing and keeps the request and every redirect on http(s)', async () => {
+    const argv = fetchArgv('https://example.com/[1-100000].png', '/cache/x.download')
+    expect(argv[0]).toBe('curl')
+    expect(argv).toContain('--globoff')
+    expect(argv.slice(argv.indexOf('--proto'), argv.indexOf('--proto') + 2)).toEqual(['--proto', '=http,https'])
+    expect(argv.slice(argv.indexOf('--proto-redir'), argv.indexOf('--proto-redir') + 2)).toEqual(['--proto-redir', '=http,https'])
+    expect(argv.slice(-3)).toEqual(['-o', '/cache/x.download', 'https://example.com/[1-100000].png'])
   })
 })
