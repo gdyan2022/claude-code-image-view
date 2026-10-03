@@ -6,6 +6,8 @@
 
 Claude Code 的终端界面只会把图片路径显示成文字。Claude 说"图表已保存到 `out/chart.png`"、用 Read 读了一张截图，或者通过 MCP 截了一张浏览器的图时，模型看得到图，你却看不到。这个插件会把图画在对应那一行的下方。
 
+![cc-image-view 在 Claude Code 终端里，把图片直接显示在 /img 命令下方](docs/screenshot.jpg)
+
 ## 会显示什么
 
 | 来源 | 例子 | 何时加载 |

@@ -6,6 +6,8 @@ A [Claude Code](https://code.claude.com) plugin that shows images inline in the 
 
 Claude Code's terminal UI shows an image path as plain text. When Claude writes `saved the chart to out/chart.png`, reads a screenshot with the Read tool, or takes a browser screenshot through an MCP server, the model sees the picture and you do not. This plugin draws it right under that row.
 
+![cc-image-view drawing a picture inline in the Claude Code terminal, under the /img command that asked for it](docs/screenshot.jpg)
+
 ## What it shows
 
 | Source | Example | Loaded |
