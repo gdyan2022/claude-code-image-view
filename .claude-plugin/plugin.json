@@ -1,6 +1,6 @@
 {
   "name": "cc-image-view",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Shows the images Claude's replies and tool results refer to, inline in the terminal transcript",
   "author": {
     "name": "gdyan2022",
@@ -11,6 +11,12 @@
   "license": "MIT",
   "keywords": ["image", "terminal", "kitty-graphics", "ghostty", "mod", "function-hooks"],
   "userConfig": {
+    "showImages": {
+      "type": "boolean",
+      "title": "Show images",
+      "description": "Draw the images that replies and tool results refer to, and /img's own. /img off and /img on change this for the current session only.",
+      "default": true
+    },
     "autoLoadRemoteImages": {
       "type": "boolean",
       "title": "Auto-load remote images",

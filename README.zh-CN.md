@@ -59,7 +59,9 @@ claude plugin install cc-image-view@claude-code-image-view
 
 ## 关闭图片显示
 
-`/img off` 会关闭所有图片显示：回复下方、工具结果下方，以及 `/img` 本身都不再显示图片。`/img on` 恢复显示，对话里已有的图片也会重新出现。这个开关随插件一起保存，之后的会话里也保持不变。如果同时开着多个会话，在一个会话里切换后，其他会话要到下次启动时才会跟着变。
+`/plugin configure cc-image-view@claude-code-image-view` 里的 **Show images** 是长期设置。关掉后，所有地方都不再显示图片：回复下方、工具结果下方，以及 `/img` 本身。
+
+`/img off` 和 `/img on` 只切换当前会话，对话里已有的图片会立即消失或重新出现。新会话会重新按菜单里的设置开始；在菜单里改设置，也会覆盖当前会话里用命令切换的结果。
 
 ## 远程图片
 

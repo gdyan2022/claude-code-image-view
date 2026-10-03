@@ -3,7 +3,7 @@ import type { Elements, Register } from 'claude-code'
 import { ensure, loadFile, loadInline, loadUrl, peek, type Entry, type Io } from './prepare'
 import { isPersonalOrigin, resolveOutsideAutomounts } from './policy'
 import { findImageRefs, fitCells, imagesInOutput, type ImageRef } from './refs'
-import { isShownFrom, parseSwitch, SHOW_IMAGES_KEY } from './settings'
+import { isShownNow, parseSwitch } from './settings'
 
 const MAX_COLUMNS = 80
 const MAX_ROWS = 24
@@ -112,8 +112,9 @@ function drawViews(
 
 export const register: Register = (on, options) => {
   const isRemoteAutoLoaded = options.autoLoadRemoteImages === true
-  // Off: nothing is drawn, /img included. Read from the store at session.start.
-  let isShown = true
+  // Off: nothing is drawn, /img included. /img off|on sets this session's override.
+  let sessionOverride: boolean | undefined
+  const isShown = (): boolean => isShownNow(options.showImages, sessionOverride)
   // No io before session.start: until then the engine draws everything itself.
   let io: Io | undefined
   let home = ''
@@ -167,7 +168,6 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     home = (await $.env.get('HOME')) ?? ''
     cwd = e.cwd
-    isShown = isShownFrom(await $.store.get(SHOW_IMAGES_KEY))
     io = {
       run: (argv, init) => $.process.run(argv, init),
       readBytes: async path => (await $.fs.read(path, { as: 'bytes' })).base64,
@@ -189,20 +189,23 @@ export const register: Register = (on, options) => {
     const arg = e.args.trim()
     if (arg === '') {
       return {
-        text: `Usage: /img <image path or http(s) URL>, or /img off|on. Images are ${isShown ? 'on' : 'off'}.`,
+        text:
+          `Usage: /img <image path or http(s) URL>, or /img off|on for this session. Images are ${isShown() ? 'on' : 'off'}` +
+          ` (default ${options.showImages === false ? 'off' : 'on'}: Show images in /plugin configure).`,
       }
     }
 
     const isTurnedOn = parseSwitch(arg)
     if (isTurnedOn !== undefined) {
-      await $.store.set(SHOW_IMAGES_KEY, isTurnedOn)
-      isShown = isTurnedOn
+      sessionOverride = isTurnedOn
       // Every row this plugin drew is drawn again, now with or without its pictures.
       $.ui.invalidate('ui.render')
-      return { text: isTurnedOn ? 'Images are on.' : 'Images are off. /img on turns them back on.' }
+      return {
+        text: `Images are ${isTurnedOn ? 'on' : 'off'} for this session. The default is Show images in /plugin configure.`,
+      }
     }
-    if (!isShown) {
-      return { text: 'Images are off. /img on turns them back on.' }
+    if (!isShown()) {
+      return { text: 'Images are off. /img on turns them on for this session.' }
     }
     if (/^https?:\/\//i.test(arg)) {
       if (isPersonalOrigin(e.origin.kind)) {
@@ -218,7 +221,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'CommandOutput', props: { command: 'img' } }, async ($, e, next) => {
     const arg = e.props.args.trim()
     const isSwitch = parseSwitch(arg) !== undefined
-    if (!isShown || io === undefined || e.surface !== 'terminal' || e.props.isErrored || arg === '' || isSwitch) {
+    if (!isShown() || io === undefined || e.surface !== 'terminal' || e.props.isErrored || arg === '' || isSwitch) {
       return next(e)
     }
 
@@ -239,7 +242,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    if (!isShown || io === undefined || e.surface !== 'terminal') {
+    if (!isShown() || io === undefined || e.surface !== 'terminal') {
       return next(e)
     }
     const refs = findImageRefs(e.props.text)
@@ -265,7 +268,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
-    if (!isShown || io === undefined || e.surface !== 'terminal' || e.props.isErrored) {
+    if (!isShown() || io === undefined || e.surface !== 'terminal' || e.props.isErrored) {
       return next(e)
     }
     const views = viewsOfOutput(io, e.props.tool_use_id, e.props.tool, undefined, e.props.output)
@@ -286,7 +289,7 @@ export const register: Register = (on, options) => {
   // Consecutive Read calls fold into one row ("Read 3 files") with no ToolResult of
   // their own, so their images hang under the group.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
-    if (!isShown || io === undefined || e.surface !== 'terminal') {
+    if (!isShown() || io === undefined || e.surface !== 'terminal') {
       return next(e)
     }
     const host = io

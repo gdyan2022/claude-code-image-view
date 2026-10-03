@@ -59,7 +59,9 @@ The repository's `samples/` folder has two test cards (`test-card-2x1.png`, `tes
 
 ## Turning images off
 
-`/img off` stops drawing pictures anywhere: under replies, under tool results, and for `/img` itself. `/img on` brings them back, and the pictures already in the transcript reappear. The switch is stored with the plugin, so it holds in later sessions. A session that is already open picks up a change made in another one when it next starts.
+**Show images** in `/plugin configure cc-image-view@claude-code-image-view` is the lasting setting. Turn it off and no pictures are drawn anywhere: under replies, under tool results, or for `/img` itself.
+
+`/img off` and `/img on` switch pictures for the current session only, and the pictures already in the transcript disappear or come back at once. A new session starts from the menu's setting again, and changing the setting in the menu replaces the session's switch.
 
 ## Remote images
 

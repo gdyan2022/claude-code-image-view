@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { isShownFrom, parseSwitch } from '../hooks/settings'
+import { isShownNow, parseSwitch } from '../hooks/settings'
 
 describe('parseSwitch', () => {
   test('reads on and off in any case, and nothing else', async () => {
@@ -12,11 +12,15 @@ describe('parseSwitch', () => {
   })
 })
 
-describe('isShownFrom', () => {
-  test('images show until the store holds an explicit false', async () => {
-    expect(isShownFrom(undefined)).toBe(true)
-    expect(isShownFrom(true)).toBe(true)
-    expect(isShownFrom(false)).toBe(false)
-    expect(isShownFrom('false')).toBe(true)
+describe('isShownNow', () => {
+  test('without an override, the option decides and is on unless false', async () => {
+    expect(isShownNow(undefined, undefined)).toBe(true)
+    expect(isShownNow(true, undefined)).toBe(true)
+    expect(isShownNow(false, undefined)).toBe(false)
+  })
+
+  test("this session's override wins over the option either way", async () => {
+    expect(isShownNow(false, true)).toBe(true)
+    expect(isShownNow(true, false)).toBe(false)
   })
 })
