@@ -3,6 +3,7 @@ import type { Elements, Register } from 'claude-code'
 import { ensure, loadFile, loadInline, loadUrl, peek, type Entry, type Io } from './prepare'
 import { isPersonalOrigin, resolveOutsideAutomounts } from './policy'
 import { findImageRefs, fitCells, imagesInOutput, type ImageRef } from './refs'
+import { parseSwitch, showImagesKey } from './settings'
 
 const MAX_COLUMNS = 80
 const MAX_ROWS = 24
@@ -111,6 +112,8 @@ function drawViews(
 
 export const register: Register = (on, options) => {
   const isRemoteAutoLoaded = options.autoLoadRemoteImages === true
+  // Off: replies and tool results draw as the engine draws them; /img <path> still shows one.
+  const isShown = options.showImages !== false
   // No io before session.start: until then the engine draws everything itself.
   let io: Io | undefined
   let home = ''
@@ -173,16 +176,38 @@ export const register: Register = (on, options) => {
     }
     await $.command.register({
       name: 'img',
-      description: 'Show an image in the terminal: /img <path or http(s) URL>',
+      description: 'Show an image in the terminal: /img <path or http(s) URL>; /img off|on turns inline images off or on',
     })
+    // A change of showImages reloads this module; redraw the rows the last one drew.
+    $.ui.invalidate('ui.render')
 
     return next(e)
   })
 
-  on('command.run', { command: 'img' }, async (_$, e) => {
+  on('command.run', { command: 'img' }, async ($, e) => {
     const arg = e.args.trim()
     if (arg === '') {
-      return { text: 'Usage: /img <image path or http(s) URL>' }
+      return {
+        text: `Usage: /img <image path or http(s) URL>, or /img off|on. Inline images are ${isShown ? 'on' : 'off'}.`,
+      }
+    }
+
+    // The same stored value as the Show images row in /config, so either place switches it.
+    const isTurnedOn = parseSwitch(arg)
+    if (isTurnedOn !== undefined) {
+      const key = showImagesKey(await $.config.list(), $.plugin.name)
+      if (key === undefined) {
+        return { text: 'Cannot find the Show images row in /config.' }
+      }
+      const set = await $.config.set({ key, value: isTurnedOn })
+      if (set.deny !== undefined) {
+        return { text: `Could not turn inline images ${arg}: ${set.deny}` }
+      }
+      return {
+        text: isTurnedOn
+          ? 'Inline images are on.'
+          : 'Inline images are off. /img <path> still shows one; /img on turns them back on.',
+      }
     }
     if (/^https?:\/\//i.test(arg)) {
       if (isPersonalOrigin(e.origin.kind)) {
@@ -197,7 +222,8 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'CommandOutput', props: { command: 'img' } }, async ($, e, next) => {
     const arg = e.props.args.trim()
-    if (io === undefined || e.surface !== 'terminal' || e.props.isErrored || arg === '') {
+    const isSwitch = parseSwitch(arg) !== undefined
+    if (io === undefined || e.surface !== 'terminal' || e.props.isErrored || arg === '' || isSwitch) {
       return next(e)
     }
 
@@ -218,7 +244,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    if (io === undefined || e.surface !== 'terminal') {
+    if (!isShown || io === undefined || e.surface !== 'terminal') {
       return next(e)
     }
     const refs = findImageRefs(e.props.text)
@@ -244,7 +270,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
-    if (io === undefined || e.surface !== 'terminal' || e.props.isErrored) {
+    if (!isShown || io === undefined || e.surface !== 'terminal' || e.props.isErrored) {
       return next(e)
     }
     const views = viewsOfOutput(io, e.props.tool_use_id, e.props.tool, undefined, e.props.output)
@@ -265,7 +291,7 @@ export const register: Register = (on, options) => {
   // Consecutive Read calls fold into one row ("Read 3 files") with no ToolResult of
   // their own, so their images hang under the group.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
-    if (io === undefined || e.surface !== 'terminal') {
+    if (!isShown || io === undefined || e.surface !== 'terminal') {
       return next(e)
     }
     const host = io

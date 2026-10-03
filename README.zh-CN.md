@@ -57,6 +57,10 @@ claude plugin install cc-image-view@claude-code-image-view
 
 仓库的 `samples/` 目录里有两张测试图（`test-card-2x1.png`、`test-card-square.jpg`）和一张示例图（`synthwave-sunset.png`）。测试图正中间各有一个圆，如果圆显示成了椭圆，说明你的终端字符格不是插件假设的 1:2 比例（见[常见问题](#常见问题)）。
 
+## 关闭图片显示
+
+`/img off` 会停止在回复和工具结果下方显示图片，`/img on` 恢复显示。这个开关会被保存，之后的会话里也保持不变。它和 `/plugin configure cc-image-view@claude-code-image-view`（以及 `/config` 菜单）里的 **Show images** 是同一个设置，在哪边改都一样。关闭期间，`/img <路径>` 仍然会显示你指定的那张图。
+
 ## 远程图片
 
 回复里的图片 URL **不会自动下载**，而是显示一行 URL 和一个 **Load** 按钮。

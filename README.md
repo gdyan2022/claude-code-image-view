@@ -57,6 +57,10 @@ There is nothing to run: pictures appear under the reply or tool result that ref
 
 The repository's `samples/` folder has two test cards (`test-card-2x1.png`, `test-card-square.jpg`) and an example picture (`synthwave-sunset.png`). Each test card has a circle in the middle: if it shows as an ellipse, your terminal's cells are not the 1:2 shape the plugin assumes (see [Troubleshooting](#troubleshooting)).
 
+## Turning images off
+
+`/img off` stops drawing pictures under replies and tool results, and `/img on` brings them back. The switch is stored, so it holds in later sessions too. It is the same setting as **Show images** in `/plugin configure cc-image-view@claude-code-image-view` (and in the `/config` menu), so either place changes it. While it is off, `/img <path>` still shows the one picture you name.
+
 ## Remote images
 
 Image URLs in a reply are **not fetched automatically**. A row shows the URL and a **Load** button instead.
