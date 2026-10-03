@@ -36,14 +36,20 @@ export type Io = {
   cacheRoot: string
 }
 
-export type Picture = { png: string; width: number; height: number }
+/**
+ * A picture ready to draw: its PNG bytes, and the same PNG as a file in the
+ * private cache when one could be written. The engine refuses a tree whose
+ * inline `{ png }` sources add up to more than 2 MiB, while a `{ file }`
+ * source counts nothing, so a row with several pictures sends the rest by file.
+ */
+export type Picture = { png: string; file?: string; width: number; height: number }
 
 export type Entry =
   | { status: 'pending' }
   | { status: 'ready'; picture: Picture }
   | { status: 'failed'; reason: string }
 
-/** What an Image's `{ png }` source takes, decoded. */
+/** The most inline `{ png }` source one tree may hold, decoded: one picture must fit alone. */
 const MAX_PNG_BYTES = 2 * 1024 * 1024
 /** Longest side tried when a picture must be re-encoded, largest first. */
 const SIDES = [1600, 1000]
@@ -174,19 +180,35 @@ async function convert(io: Io, source: string, name: string): Promise<Picture> {
     const png = await io.readBytes(out).catch(() => undefined)
     const shown = png === undefined ? undefined : pngSize(png)
     if (png !== undefined && shown !== undefined && decodedLength(png) <= MAX_PNG_BYTES) {
-      return { png, ...shown }
+      return { png, file: out, ...shown }
     }
   }
 
   throw new Error('still over 2 MiB after shrinking')
 }
 
+/**
+ * A PNG sent as it is, with a copy written to the private cache for the rows
+ * that need it by file. Never the original path: the terminal would open it
+ * itself, following any link swapped in since the path was checked.
+ */
+async function asIs(io: Io, png: string, name: string): Promise<Picture | undefined> {
+  const size = pngSize(png)
+  if (size === undefined) {
+    return undefined
+  }
+
+  const dir = await ensureCacheDir(io).catch(() => undefined)
+  const file = `${dir}/${name}-as-is.png`
+  const written = dir === undefined ? undefined : await io.run(decodeArgv(file), { stdin: png }).catch(() => undefined)
+  return { png, ...(written?.exitCode === 0 ? { file } : {}), ...size }
+}
+
 export async function loadFile(io: Io, path: string, bytes: number, key: string): Promise<Picture> {
   if (/\.png$/i.test(path) && bytes <= MAX_PNG_BYTES) {
-    const png = await io.readBytes(path)
-    const size = pngSize(png)
-    if (size !== undefined) {
-      return { png, ...size }
+    const picture = await asIs(io, await io.readBytes(path), await digest(key))
+    if (picture !== undefined) {
+      return picture
     }
   }
 
@@ -209,15 +231,15 @@ export async function loadUrl(io: Io, url: string): Promise<Picture> {
 }
 
 export async function loadInline(io: Io, image: InlineImage, key: string): Promise<Picture> {
+  const name = await digest(key)
   if (image.mime === 'image/png' && decodedLength(image.data) <= MAX_PNG_BYTES) {
-    const size = pngSize(image.data)
-    if (size !== undefined) {
-      return { png: image.data, ...size }
+    const picture = await asIs(io, image.data, name)
+    if (picture !== undefined) {
+      return picture
     }
   }
 
   const dir = await ensureCacheDir(io)
-  const name = await digest(key)
   const file = `${dir}/${name}.bin`
   const written = await io.run(decodeArgv(file), { stdin: image.data })
   if (written.exitCode !== 0) {

@@ -2,7 +2,7 @@ import type { Elements, Register } from 'claude-code'
 
 import { ensure, loadFile, loadInline, loadUrl, peek, type Entry, type Io } from './prepare'
 import { isPersonalOrigin, resolveOutsideAutomounts } from './policy'
-import { findImageRefs, fitCells, imagesInOutput, type ImageRef } from './refs'
+import { decodedLength, findImageRefs, fitCells, imagesInOutput, type ImageRef } from './refs'
 import { isShownNow, parseSwitch } from './settings'
 
 const MAX_COLUMNS = 80
@@ -11,6 +11,12 @@ const MAX_ROWS = 24
 const REPLY_INDENT = 2
 /** Indent of a tool result (lined up with the text after ⎿). */
 const RESULT_INDENT = 5
+/**
+ * The engine refuses a whole tree whose inline `{ png }` sources add up to more
+ * than 2 MiB decoded, and draws its own row instead; a `{ file }` source counts
+ * nothing. A KiB is kept spare against rounding in the engine's count.
+ */
+const TREE_INLINE_BUDGET = 2 * 1024 * 1024 - 1024
 
 type RemoteView = { key: string; label: string; remoteUrl: string }
 type View = { key: string; label: string; entry: Entry } | RemoteView
@@ -68,6 +74,7 @@ function drawViews(
   onLoad: (view: RemoteView) => void,
 ) {
   const { Box, Button, Image, Text } = ui
+  let inlined = 0
 
   return views.map(view => {
     if ('remoteUrl' in view) {
@@ -98,10 +105,27 @@ function drawViews(
     }
 
     const { picture } = entry
+    // Inline while the tree's budget lasts, then by file, so several large
+    // pictures in one reply do not get the whole row refused.
+    const bytes = decodedLength(picture.png)
+    const isInline = inlined + bytes <= TREE_INLINE_BUDGET
+    inlined += isInline ? bytes : 0
+    const source = isInline
+      ? { png: picture.png }
+      : picture.file === undefined
+        ? undefined
+        : { file: picture.file, format: 'png' as const }
+    if (source === undefined) {
+      return (
+        <Box paddingLeft={indent}>
+          <Text dimColor>✗ cannot show image {view.label}: too many large pictures in one row</Text>
+        </Box>
+      )
+    }
     const cells = fitCells(picture.width, picture.height, maxColumns, MAX_ROWS)
     return (
       <Box flexDirection="column" paddingLeft={indent} marginTop={1}>
-        <Image source={{ png: picture.png }} columns={cells.columns} rows={cells.rows} alt={view.label} />
+        <Image source={source} columns={cells.columns} rows={cells.rows} alt={view.label} />
         <Text dimColor>
           {view.label} · {picture.width}×{picture.height}
         </Text>

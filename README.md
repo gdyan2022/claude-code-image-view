@@ -94,6 +94,7 @@ If you accept that risk, turn on **Auto-load remote images**:
 - Files are sniffed by their first bytes, and only the formats above reach a converter. ImageMagick is always told the format (`jpeg:file[0]`), so it never chooses a decoder from file contents.
 - A path under a host-keyed automount root (`/net`, `/Network`) is never touched, since even checking whether it exists makes the machine contact the host named in it. Paths are resolved one component at a time from directory listings, which show a link as a link; a link's target is read with `readlink` and checked before it is followed. So a route through a link to `/` (`/Volumes/Macintosh HD`, `/proc/self/root`) or a link in a cloned repository (`docs/diagram.png -> /net/<host>/x.png`) is caught too. Downloads run `curl` with URL globbing off and only `http`/`https` allowed, for redirects too.
 - Converted and downloaded files are cached in `${XDG_CACHE_HOME:-~/.cache}/cc-image-view/`, a directory only you can read (mode 700). A shared `/tmp` would let another local user plant a symlink where the plugin writes. Limits: 6 pictures per reply block, 80 columns × 24 rows each, 2 MiB per encoded PNG, 256 MiB of pictures per session.
+- Claude Code refuses a row whose pictures carry more than 2 MiB of PNG between them. Pictures go inline until that is used up; the rest are handed to the terminal as files from the cache, which it reads itself (kitty and Ghostty do).
 
 ## Limitations
 
