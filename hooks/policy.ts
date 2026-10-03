@@ -12,19 +12,6 @@ export function isPersonalOrigin(kind: string): boolean {
   return PERSONAL_ORIGINS.has(kind)
 }
 
-/** `path` made absolute against `cwd`, with `.` and `..` resolved by spelling alone. */
-export function absolutePath(path: string, cwd: string): string {
-  const parts: string[] = []
-  for (const part of (path.startsWith('/') ? path : `${cwd}/${path}`).split('/')) {
-    if (part === '..') {
-      parts.pop()
-    } else if (part !== '' && part !== '.') {
-      parts.push(part)
-    }
-  }
-  return `/${parts.join('/')}`
-}
-
 /**
  * Automount roots keyed by host name (macOS `/net` and `/Network`, the Linux
  * autofs `-hosts` map at `/net`). A bare stat of `/net/<host>/...` makes the
@@ -37,4 +24,54 @@ const HOST_AUTOMOUNTS = ['/net', '/network']
 export function isHostAutomount(absolute: string): boolean {
   const lower = absolute.toLowerCase()
   return HOST_AUTOMOUNTS.some(root => lower === root || lower.startsWith(`${root}/`))
+}
+
+/** What `resolveOutsideAutomounts` needs from a stat: the engine's `$.fs.stat` with `resolve: true`. */
+export type ResolvedStat = { kind: 'file' | 'dir' | 'other'; size: number; mtimeMs: number; realPath?: string }
+
+/**
+ * Resolves `path` (relative to `cwd`) one component at a time, the way the
+ * kernel does, and never stats a path under a host-keyed automount root.
+ *
+ * Checking the spelling alone is not enough: existing links reach the root
+ * from elsewhere (`/Volumes/Macintosh HD` on macOS, `/proc/self/root` on
+ * Linux), so `/Volumes/Macintosh HD/net/<host>/x.png` lands in `/net`. Each
+ * component is checked against its parent's real path before it is touched,
+ * then its own real path (links followed) becomes the next parent.
+ *
+ * @returns the final component's stat with its real path, or undefined when
+ *   any component is missing or would land under an automount root
+ */
+export async function resolveOutsideAutomounts(
+  path: string,
+  cwd: string,
+  stat: (path: string) => Promise<ResolvedStat | undefined>,
+): Promise<(ResolvedStat & { realPath: string }) | undefined> {
+  const full = path.startsWith('/') ? path : `${cwd}/${path}`
+  let current = '/'
+  let last: ResolvedStat | undefined
+
+  for (const part of full.split('/')) {
+    if (part === '' || part === '.') {
+      continue
+    }
+    if (part === '..') {
+      current = current.slice(0, current.lastIndexOf('/')) || '/'
+      last = undefined
+      continue
+    }
+
+    const candidate = current === '/' ? `/${part}` : `${current}/${part}`
+    if (isHostAutomount(candidate)) {
+      return undefined
+    }
+    const found = await stat(candidate)
+    if (found?.realPath === undefined || isHostAutomount(found.realPath)) {
+      return undefined
+    }
+    current = found.realPath
+    last = found
+  }
+
+  return last?.realPath === undefined ? undefined : { ...last, realPath: last.realPath }
 }
