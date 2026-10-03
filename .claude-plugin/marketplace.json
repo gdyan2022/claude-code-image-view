@@ -1,0 +1,21 @@
+{
+  "name": "claude-code-image-view",
+  "owner": {
+    "name": "gdyan2022",
+    "url": "https://github.com/gdyan2022"
+  },
+  "metadata": {
+    "description": "Inline images in the Claude Code terminal transcript"
+  },
+  "plugins": [
+    {
+      "name": "image-view",
+      "source": "./",
+      "description": "Shows the images Claude's replies and tool results refer to, inline in the terminal transcript",
+      "version": "0.1.0",
+      "license": "MIT",
+      "homepage": "https://github.com/gdyan2022/claude-code-image-view",
+      "keywords": ["image", "terminal", "kitty-graphics", "ghostty"]
+    }
+  ]
+}

@@ -1,0 +1,226 @@
+// Turning a reference into PNG bytes a terminal Image can show, off the
+// drawing path. Each picture is prepared once per key and kept in this
+// module; when one settles, every drawing of this plugin is redrawn.
+
+import type { EngineInterface } from 'claude-code'
+
+import {
+  BACKEND_PROBES,
+  convertArgv,
+  decodeArgv,
+  headArgv,
+  parseProbe,
+  probeArgv,
+  sniffFormat,
+  type Backend,
+} from './backends'
+import { decodedLength, decodeHead, pngSize, type InlineImage } from './refs'
+
+/**
+ * The host calls this plugin makes. `$` may only be spelled `$.noun.method(...)`
+ * at a call site and never passed to a helper, so session.start wraps these in
+ * closures and hands them here.
+ */
+export type Io = {
+  run: EngineInterface['process']['run']
+  readBytes: (path: string) => Promise<string>
+  stat: (path: string) => ReturnType<EngineInterface['fs']['stat']>
+  redraw: () => void
+  /**
+   * Where converted and downloaded files go: under the user's own cache
+   * directory, never a shared /tmp, where another local user could plant a
+   * symlink at a predictable name and have curl or a converter write through it.
+   */
+  cacheRoot: string
+}
+
+export type Picture = { png: string; width: number; height: number }
+
+export type Entry =
+  | { status: 'pending' }
+  | { status: 'ready'; picture: Picture }
+  | { status: 'failed'; reason: string }
+
+/** What an Image's `{ png }` source takes, decoded. */
+const MAX_PNG_BYTES = 2 * 1024 * 1024
+/** Longest side tried when a picture must be re-encoded, largest first. */
+const SIDES = [1600, 1000]
+/**
+ * A cap rather than eviction: a redraw draws every hooked row, on screen or
+ * not, so evicting a picture another row still shows would re-prepare it,
+ * redraw, evict again, and never settle.
+ */
+const MAX_HELD_CHARS = 256 * 1024 * 1024
+
+const entries = new Map<string, Entry>()
+let heldChars = 0
+let cacheDir: Promise<string> | undefined
+let backend: Promise<Backend> | undefined
+
+export function peek(key: string): Entry | undefined {
+  return entries.get(key)
+}
+
+/** The entry under `key`, starting `job` the first time the key is asked for. */
+export function ensure(io: Io, key: string, job: () => Promise<Picture>): Entry {
+  const held = entries.get(key)
+  if (held !== undefined) {
+    return held
+  }
+
+  const pending: Entry = { status: 'pending' }
+  entries.set(key, pending)
+
+  void job()
+    .then(
+      (picture): Entry => {
+        if (heldChars + picture.png.length > MAX_HELD_CHARS) {
+          return { status: 'failed', reason: 'the image cache for this session is full' }
+        }
+        heldChars += picture.png.length
+        return { status: 'ready', picture }
+      },
+      (error: unknown): Entry => ({ status: 'failed', reason: reasonOf(error) }),
+    )
+    .then(entry => {
+      entries.set(key, entry)
+      io.redraw()
+    })
+
+  return pending
+}
+
+function reasonOf(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error)
+  return text.split('\n')[0]?.trim() || 'unknown error'
+}
+
+/** Runs once per key; a failure is not kept, so the next call tries again. */
+function once<T>(held: Promise<T> | undefined, start: () => Promise<T>, forget: () => void): Promise<T> {
+  return (
+    held ??
+    start().catch((error: unknown) => {
+      forget()
+      throw error
+    })
+  )
+}
+
+async function digest(text: string): Promise<string> {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
+  return Array.from(hash.slice(0, 12), byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function ensureCacheDir(io: Io): Promise<string> {
+  cacheDir = once(
+    cacheDir,
+    async () => {
+      const dir = `${io.cacheRoot.replace(/\/+$/, '')}/cc-image-view`
+      const made = await io.run(['mkdir', '-p', dir])
+      const sealed = made.exitCode === 0 ? await io.run(['chmod', '700', dir]) : made
+      if (sealed.exitCode !== 0) {
+        throw new Error(`cannot create a private cache at ${dir}: ${sealed.stderr}`)
+      }
+      return dir
+    },
+    () => (cacheDir = undefined),
+  )
+  return cacheDir
+}
+
+function detectBackend(io: Io): Promise<Backend> {
+  backend = once(
+    backend,
+    async () => {
+      for (const [candidate, argv] of BACKEND_PROBES) {
+        const probe = await io.run(argv).catch(() => undefined)
+        if (probe?.exitCode === 0) {
+          return candidate
+        }
+      }
+      throw new Error('no image converter found: install ImageMagick (magick or convert/identify)')
+    },
+    () => (backend = undefined),
+  )
+  return backend
+}
+
+/** Any supported image file, re-encoded as a PNG small enough to send. */
+async function convert(io: Io, source: string, name: string): Promise<Picture> {
+  const head = await io.run(headArgv(source))
+  const format = sniffFormat(decodeHead(head.stdout.trim(), 16))
+  if (format === undefined) {
+    throw new Error('not a supported image format (PNG, JPEG, GIF, WebP, BMP, TIFF, HEIC)')
+  }
+
+  const tool = await detectBackend(io)
+  const probe = await io.run(probeArgv(tool, source, format))
+  const size = parseProbe(tool, probe.stdout)
+  if (probe.exitCode !== 0 || size === undefined) {
+    throw new Error(probe.stderr || `${tool} could not read it`)
+  }
+
+  const dir = await ensureCacheDir(io)
+  const longest = Math.max(size.width, size.height)
+  for (const side of SIDES) {
+    const out = `${dir}/${name}-${longest > side ? side : 'full'}.png`
+    const made = await io.run(convertArgv(tool, source, format, out, side, longest))
+    if (made.exitCode !== 0) {
+      throw new Error(made.stderr || `${tool} could not convert it`)
+    }
+
+    const png = await io.readBytes(out).catch(() => undefined)
+    const shown = png === undefined ? undefined : pngSize(png)
+    if (png !== undefined && shown !== undefined && decodedLength(png) <= MAX_PNG_BYTES) {
+      return { png, ...shown }
+    }
+  }
+
+  throw new Error('still over 2 MiB after shrinking')
+}
+
+export async function loadFile(io: Io, path: string, bytes: number, key: string): Promise<Picture> {
+  if (/\.png$/i.test(path) && bytes <= MAX_PNG_BYTES) {
+    const png = await io.readBytes(path)
+    const size = pngSize(png)
+    if (size !== undefined) {
+      return { png, ...size }
+    }
+  }
+
+  return convert(io, path, await digest(key))
+}
+
+export async function loadUrl(io: Io, url: string): Promise<Picture> {
+  const dir = await ensureCacheDir(io)
+  const name = await digest(url)
+  const file = `${dir}/${name}.download`
+  const fetched = await io.run(
+    ['curl', '-fsSL', '--max-time', '20', '--max-filesize', String(25 * 1024 * 1024), '-o', file, url],
+    { timeoutMs: 30_000 },
+  )
+  if (fetched.exitCode !== 0) {
+    throw new Error(fetched.stderr || `curl exited with ${fetched.exitCode}`)
+  }
+
+  return convert(io, file, name)
+}
+
+export async function loadInline(io: Io, image: InlineImage, key: string): Promise<Picture> {
+  if (image.mime === 'image/png' && decodedLength(image.data) <= MAX_PNG_BYTES) {
+    const size = pngSize(image.data)
+    if (size !== undefined) {
+      return { png: image.data, ...size }
+    }
+  }
+
+  const dir = await ensureCacheDir(io)
+  const name = await digest(key)
+  const file = `${dir}/${name}.bin`
+  const written = await io.run(decodeArgv(file), { stdin: image.data })
+  if (written.exitCode !== 0) {
+    throw new Error(written.stderr || 'could not decode the base64 image')
+  }
+
+  return convert(io, file, name)
+}

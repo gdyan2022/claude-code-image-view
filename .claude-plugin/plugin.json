@@ -1,0 +1,21 @@
+{
+  "name": "image-view",
+  "version": "0.1.0",
+  "description": "Shows the images Claude's replies and tool results refer to, inline in the terminal transcript",
+  "author": {
+    "name": "gdyan2022",
+    "url": "https://github.com/gdyan2022"
+  },
+  "homepage": "https://github.com/gdyan2022/claude-code-image-view",
+  "repository": "https://github.com/gdyan2022/claude-code-image-view",
+  "license": "MIT",
+  "keywords": ["image", "terminal", "kitty-graphics", "ghostty", "mod", "function-hooks"],
+  "userConfig": {
+    "autoLoadRemoteImages": {
+      "type": "boolean",
+      "title": "Auto-load remote images",
+      "description": "Fetch http(s) image URLs that appear in Claude's replies without asking. Off by default: a reply shaped by a prompt injection can carry data out in an image URL, and fetching it sends that data.",
+      "default": false
+    }
+  }
+}
