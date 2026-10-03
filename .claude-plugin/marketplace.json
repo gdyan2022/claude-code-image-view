@@ -9,7 +9,7 @@
   },
   "plugins": [
     {
-      "name": "image-view",
+      "name": "cc-image-view",
       "source": "./",
       "description": "Shows the images Claude's replies and tool results refer to, inline in the terminal transcript",
       "version": "0.1.0",

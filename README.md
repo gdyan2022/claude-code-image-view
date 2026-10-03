@@ -1,4 +1,4 @@
-# image-view
+# cc-image-view
 
 English | [简体中文](README.zh-CN.md)
 
@@ -34,14 +34,14 @@ In Claude Code:
 
 ```
 /plugin marketplace add gdyan2022/claude-code-image-view
-/plugin install image-view@claude-code-image-view
+/plugin install cc-image-view@claude-code-image-view
 ```
 
 Or from a shell:
 
 ```sh
 claude plugin marketplace add gdyan2022/claude-code-image-view
-claude plugin install image-view@claude-code-image-view
+claude plugin install cc-image-view@claude-code-image-view
 ```
 
 Start a new session afterwards. Plugin hooks load only in a workspace you have trusted.
@@ -68,7 +68,7 @@ The reason is a known data-leak pattern. A reply shaped by a prompt injection (s
 If you accept that risk, turn on **Auto-load remote images**:
 
 ```
-/plugin configure image-view@claude-code-image-view
+/plugin configure cc-image-view@claude-code-image-view
 ```
 
 ## Troubleshooting

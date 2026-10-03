@@ -1,4 +1,4 @@
-# image-view
+# cc-image-view
 
 [English](README.md) | 简体中文
 
@@ -34,14 +34,14 @@ Claude Code 的终端界面只会把图片路径显示成文字。Claude 说"图
 
 ```
 /plugin marketplace add gdyan2022/claude-code-image-view
-/plugin install image-view@claude-code-image-view
+/plugin install cc-image-view@claude-code-image-view
 ```
 
 或者在 shell 里运行：
 
 ```sh
 claude plugin marketplace add gdyan2022/claude-code-image-view
-claude plugin install image-view@claude-code-image-view
+claude plugin install cc-image-view@claude-code-image-view
 ```
 
 装好后开一个新会话。插件 hooks 只会在你已信任的工作区里加载。
@@ -68,7 +68,7 @@ claude plugin install image-view@claude-code-image-view
 如果你接受这个风险，可以打开 **Auto-load remote images**：
 
 ```
-/plugin configure image-view@claude-code-image-view
+/plugin configure cc-image-view@claude-code-image-view
 ```
 
 ## 常见问题
