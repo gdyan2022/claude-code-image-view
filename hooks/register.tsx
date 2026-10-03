@@ -3,7 +3,7 @@ import type { Elements, Register } from 'claude-code'
 import { ensure, loadFile, loadInline, loadUrl, peek, type Entry, type Io } from './prepare'
 import { isPersonalOrigin, resolveOutsideAutomounts } from './policy'
 import { findImageRefs, fitCells, imagesInOutput, type ImageRef } from './refs'
-import { parseSwitch, showImagesKey } from './settings'
+import { isShownFrom, parseSwitch, SHOW_IMAGES_KEY } from './settings'
 
 const MAX_COLUMNS = 80
 const MAX_ROWS = 24
@@ -112,8 +112,8 @@ function drawViews(
 
 export const register: Register = (on, options) => {
   const isRemoteAutoLoaded = options.autoLoadRemoteImages === true
-  // Off: replies and tool results draw as the engine draws them; /img <path> still shows one.
-  const isShown = options.showImages !== false
+  // Off: nothing is drawn, /img included. Read from the store at session.start.
+  let isShown = true
   // No io before session.start: until then the engine draws everything itself.
   let io: Io | undefined
   let home = ''
@@ -167,6 +167,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     home = (await $.env.get('HOME')) ?? ''
     cwd = e.cwd
+    isShown = isShownFrom(await $.store.get(SHOW_IMAGES_KEY))
     io = {
       run: (argv, init) => $.process.run(argv, init),
       readBytes: async path => (await $.fs.read(path, { as: 'bytes' })).base64,
@@ -178,7 +179,7 @@ export const register: Register = (on, options) => {
       name: 'img',
       description: 'Show an image in the terminal: /img <path or http(s) URL>; /img off|on turns inline images off or on',
     })
-    // A change of showImages reloads this module; redraw the rows the last one drew.
+    // A reload starts with no drawings of its own; redraw the rows the last module drew.
     $.ui.invalidate('ui.render')
 
     return next(e)
@@ -188,26 +189,20 @@ export const register: Register = (on, options) => {
     const arg = e.args.trim()
     if (arg === '') {
       return {
-        text: `Usage: /img <image path or http(s) URL>, or /img off|on. Inline images are ${isShown ? 'on' : 'off'}.`,
+        text: `Usage: /img <image path or http(s) URL>, or /img off|on. Images are ${isShown ? 'on' : 'off'}.`,
       }
     }
 
-    // The same stored value as the Show images row in /config, so either place switches it.
     const isTurnedOn = parseSwitch(arg)
     if (isTurnedOn !== undefined) {
-      const key = showImagesKey(await $.config.list(), $.plugin.name)
-      if (key === undefined) {
-        return { text: 'Cannot find the Show images row in /config.' }
-      }
-      const set = await $.config.set({ key, value: isTurnedOn })
-      if (set.deny !== undefined) {
-        return { text: `Could not turn inline images ${arg}: ${set.deny}` }
-      }
-      return {
-        text: isTurnedOn
-          ? 'Inline images are on.'
-          : 'Inline images are off. /img <path> still shows one; /img on turns them back on.',
-      }
+      await $.store.set(SHOW_IMAGES_KEY, isTurnedOn)
+      isShown = isTurnedOn
+      // Every row this plugin drew is drawn again, now with or without its pictures.
+      $.ui.invalidate('ui.render')
+      return { text: isTurnedOn ? 'Images are on.' : 'Images are off. /img on turns them back on.' }
+    }
+    if (!isShown) {
+      return { text: 'Images are off. /img on turns them back on.' }
     }
     if (/^https?:\/\//i.test(arg)) {
       if (isPersonalOrigin(e.origin.kind)) {
@@ -223,7 +218,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'CommandOutput', props: { command: 'img' } }, async ($, e, next) => {
     const arg = e.props.args.trim()
     const isSwitch = parseSwitch(arg) !== undefined
-    if (io === undefined || e.surface !== 'terminal' || e.props.isErrored || arg === '' || isSwitch) {
+    if (!isShown || io === undefined || e.surface !== 'terminal' || e.props.isErrored || arg === '' || isSwitch) {
       return next(e)
     }
 

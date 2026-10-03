@@ -1,7 +1,11 @@
-// The showImages switch: reading `/img on|off`, and finding the /config row
-// that holds it so the command and the menu change one stored value.
+// The image switch: reading `/img on|off`, and what the stored value means.
+//
+// It lives in the plugin's own store, not in userConfig: a plugin cannot
+// change its own userConfig (only /plugin configure can; $.config.list holds
+// no plugin rows for an installed plugin), so a command could not flip it.
 
-export const SHOW_IMAGES_FIELD = 'showImages'
+/** The $.store key of the switch. */
+export const SHOW_IMAGES_KEY = 'showImages'
 
 /** `true` for `on`, `false` for `off`; anything else is a path or URL. */
 export function parseSwitch(arg: string): boolean | undefined {
@@ -9,19 +13,7 @@ export function parseSwitch(arg: string): boolean | undefined {
   return word === 'on' ? true : word === 'off' ? false : undefined
 }
 
-/**
- * The key of this plugin's showImages row among the /config rows. A row is
- * `<plugin>.<field>`, and the plugin part may carry a suffix (`@inline` for a
- * --plugin-dir load), so the owner is checked as well as the name.
- */
-export function showImagesKey(
-  rows: readonly { key: string; provider: { plugin: string } }[],
-  plugin: string,
-): string | undefined {
-  return rows.find(
-    row =>
-      row.provider.plugin === plugin &&
-      row.key.endsWith(`.${SHOW_IMAGES_FIELD}`) &&
-      (row.key.startsWith(`${plugin}.`) || row.key.startsWith(`${plugin}@`)),
-  )?.key
+/** Images show unless the store holds an explicit `false`. */
+export function isShownFrom(stored: unknown): boolean {
+  return stored !== false
 }
