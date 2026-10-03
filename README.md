@@ -98,7 +98,7 @@ If you accept that risk, turn on **Auto-load remote images**:
 ## Limitations
 
 - SVG is not supported.
-- Paths inside fenced code blocks are ignored on purpose, so command output does not turn into a gallery.
+- In a fenced code block, only a line that is a path on its own shows a picture. Lines with other words on them (`ls` output, commands, code) are ignored on purpose, so command output does not turn into a gallery.
 - Animated GIFs show their first frame.
 
 ## Development

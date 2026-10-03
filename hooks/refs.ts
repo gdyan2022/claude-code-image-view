@@ -10,6 +10,10 @@ export const MAX_REFS = 6
 
 const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic)$/i
 const FENCED_BLOCK = /^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[ \t]*$/gm
+// A line of fenced code that is one path or URL and nothing else: one token, or a
+// path from /, ~/ or ./ (spaces allowed). ls output, commands and code that merely
+// name a file have other words on the line.
+const WHOLE_LINE_PATH = /^(?:\S+|(?:~|\.{1,2})?\/.*)$/
 const MARKDOWN_TARGET = /!?\[[^\]\n]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g
 const CODE_SPAN = /`([^`\n]+)`/g
 const TOKEN_BREAK = /[\s`'"()<>[\]{}|,;，。；：！？、（）【】「」『』《》“”‘’]+/
@@ -20,8 +24,9 @@ const OTHER_SCHEME = /^(?!https?:|file:)[a-z][a-z0-9+.-]*:\/\//i
 /**
  * Image references in one block of markdown, in order and without repeats:
  * markdown image and link targets, whole inline-code paths (spaces allowed),
- * and bare tokens ending in an image extension. Fenced code is skipped, so
- * file names in pasted command output are not all shown as pictures.
+ * bare tokens ending in an image extension, and lines of fenced code that are
+ * a path on their own. Other fenced lines are skipped, so the file names in
+ * pasted command output or code are not all shown as pictures.
  */
 export function findImageRefs(markdown: string): ImageRef[] {
   const refs: ImageRef[] = []
@@ -42,7 +47,14 @@ export function findImageRefs(markdown: string): ImageRef[] {
   }
 
   const prose = markdown
-    .replace(FENCED_BLOCK, ' ')
+    .replace(FENCED_BLOCK, (block: string) => {
+      for (const line of block.split('\n').slice(1, -1)) {
+        if (WHOLE_LINE_PATH.test(line.trim())) {
+          add(line, false)
+        }
+      }
+      return ' '
+    })
     .replace(MARKDOWN_TARGET, (whole: string, target: string) => {
       add(target, whole.startsWith('!'))
       return ' '

@@ -1,6 +1,6 @@
 {
   "name": "cc-image-view",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Shows the images Claude's replies and tool results refer to, inline in the terminal transcript",
   "author": {
     "name": "gdyan2022",

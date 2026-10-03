@@ -31,7 +31,7 @@ describe('findImageRefs', () => {
     ])
   })
 
-  test('skips fenced code and other schemes, strips emphasis and punctuation, drops repeats', async () => {
+  test('skips other fenced lines and other schemes, strips emphasis and punctuation, drops repeats', async () => {
     const text = [
       '```',
       'ls\nlogo.png icon.png',
@@ -40,6 +40,26 @@ describe('findImageRefs', () => {
     ].join('\n')
 
     expect(findImageRefs(text)).toEqual([{ kind: 'file', raw: 'chart.png' }])
+  })
+
+  test('reads fenced lines that are a path on their own, and only those', async () => {
+    const text = [
+      '```',
+      '/Users/gdyan/tmp/random-images/01_julia.png',
+      '/Users/me/My Pics/a b.jpg',
+      'ls',
+      'logo.png icon.png',
+      'python show.py --out preview.png',
+      'img = open("photo.jpg")',
+      'https://example.com/x.png',
+      '```',
+    ].join('\n')
+
+    expect(findImageRefs(text)).toEqual([
+      { kind: 'file', raw: '/Users/gdyan/tmp/random-images/01_julia.png' },
+      { kind: 'file', raw: '/Users/me/My Pics/a b.jpg' },
+      { kind: 'url', raw: 'https://example.com/x.png' },
+    ])
   })
 
   test('returns nothing without references, and at most MAX_REFS', async () => {
