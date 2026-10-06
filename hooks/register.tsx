@@ -1,5 +1,6 @@
 import type { Elements, Register } from 'claude-code'
 
+import { cellAspect, noteColumns, watchCells } from './cells'
 import { ensure, loadFile, loadInline, loadUrl, peek, workQueue, type Entry, type Io } from './prepare'
 import { isPersonalOrigin, resolveOutsideAutomounts } from './policy'
 import { decodedLength, findImageRefs, fitCells, imagesInOutput, type ImageRef } from './refs'
@@ -122,7 +123,7 @@ function drawViews(
         </Box>
       )
     }
-    const cells = fitCells(picture.width, picture.height, maxColumns, MAX_ROWS)
+    const cells = fitCells(picture.width, picture.height, maxColumns, MAX_ROWS, cellAspect())
     return (
       <Box flexDirection="column" paddingLeft={indent} marginTop={1}>
         <Image source={source} columns={cells.columns} rows={cells.rows} alt={view.label} />
@@ -199,8 +200,9 @@ export const register: Register = (on, options) => {
       redraw: () => $.ui.invalidate('ui.render'),
       cacheRoot: (await $.env.get('XDG_CACHE_HOME')) || `${home}/.cache`,
     }
-    // Pictures are prepared here, in session.start's dispatch, never in a render's.
+    // Pictures are prepared and cells measured here, in session.start's dispatch, never in a render's.
     void workQueue(io)
+    void watchCells(io)
     await $.command.register({
       name: 'img',
       description: 'Show an image in the terminal: /img <path or http(s) URL>; /img off|on turns inline images off or on',
@@ -251,6 +253,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
+    noteColumns(e.viewport?.columns)
     const ref: ImageRef = { kind: /^https?:\/\//i.test(arg) ? 'url' : 'file', raw: arg }
     const view = await viewOfRef(io, ref, ref.kind === 'file' || isRemoteAutoLoaded || requestedUrls.has(arg))
     if (view === undefined) {
@@ -271,6 +274,7 @@ export const register: Register = (on, options) => {
     if (!isShown() || io === undefined || e.surface !== 'terminal') {
       return next(e)
     }
+    noteColumns(e.viewport?.columns)
     const refs = findImageRefs(e.props.text)
     if (refs.length === 0) {
       return next(e)
@@ -297,6 +301,7 @@ export const register: Register = (on, options) => {
     if (!isShown() || io === undefined || e.surface !== 'terminal' || e.props.isErrored) {
       return next(e)
     }
+    noteColumns(e.viewport?.columns)
     const views = viewsOfOutput(io, e.props.tool_use_id, e.props.tool, undefined, e.props.output)
     if (views.length === 0) {
       return next(e)
@@ -318,6 +323,7 @@ export const register: Register = (on, options) => {
     if (!isShown() || io === undefined || e.surface !== 'terminal') {
       return next(e)
     }
+    noteColumns(e.viewport?.columns)
     const host = io
     const views = e.props.calls.flatMap((call, at) =>
       call.isErrored

@@ -21,14 +21,17 @@ const TREE: Record<string, Entry[]> = {
 
 const RAN = { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false }
 
-/** The engine's side of what the plugin calls: a small file system, and commands that succeed. */
-function standIn(on: On): void {
+/**
+ * The engine's side of what the plugin calls: a small file system, and commands
+ * that succeed. `winsize` is what the terminal reports for the cell measurement.
+ */
+function standIn(on: On, winsize = ''): void {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   // What the engine draws itself for the row, under which the plugin adds its pictures.
   on('ui.render', () => ({ type: 'engine', ref: 0 }))
   on('fs.list', (_$, e) => ({ value: TREE[e.path] ?? [] }))
   on('fs.read', (_$, e) => ({ value: { base64: e.path.includes('/big') ? PNG_1MiB : PNG_2x1 } }))
-  on('process.run', () => ({ value: RAN }))
+  on('process.run', (_$, e) => ({ value: { ...RAN, stdout: e.argv[0] === 'python3' ? winsize : '' } }))
   on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/Users/me' : undefined }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('ui.invalidate', () => ({ value: undefined }))
@@ -101,5 +104,39 @@ describe('drawing', () => {
     }
 
     expect(image).toBeDefined()
+  })
+})
+
+describe('cell shape', () => {
+  // A whole black 720×360 PNG.
+  const PNG_720x360 =
+    'iVBORw0KGgoAAAANSUhEUgAAAtAAAAFoCAIAAADxRFtOAAADCUlEQVR42u3BMQEAAADCoPVPbQo/oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAICXAd+NAAFdscwBAAAAAElFTkSuQmCC'
+
+  test('a picture is sized for the cells the terminal reports', async ($, on) => {
+    // 40 rows × 100 columns over 800×800 px: 8×20 px cells, 2.5 times taller than wide.
+    standIn(on, '40 100 800 800\n')
+    await $.session.start({ cwd: '/Users/me', surface: 'terminal', isInteractive: true })
+
+    const target = {
+      plugin: 'cc-image-view',
+      surface: 'terminal',
+      component: 'ToolResult',
+      props: {
+        tool_use_id: 'toolu_2',
+        tool: 'Read',
+        isErrored: false,
+        output: { type: 'image', file: { base64: PNG_720x360, type: 'image/png', originalSize: 834 } },
+      },
+    } as const
+    // 73 columns wide (80 less the result's indent and margin). At the default
+    // 2:1 cell that is 18 rows; at 2.5:1, 15.
+    let rows
+    for (let attempt = 0; attempt < 20 && rows !== 15; attempt += 1) {
+      const ui = await $.ui.mount(target)
+      rows = (await ui.find({ type: 'Image' }))?.props.rows
+      await ui.unmount()
+    }
+
+    expect(rows).toBe(15)
   })
 })
