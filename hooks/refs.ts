@@ -163,20 +163,25 @@ export function decodedLength(base64: string): number {
   return Math.floor((trimmed.length * 3) / 4) - padding
 }
 
-/** A terminal cell is about half as wide as it is tall. */
-const CELL_ASPECT = 0.5
+/** A cell's height over its width when the terminal does not say: about twice as tall as wide. */
+export const DEFAULT_CELL_ASPECT = 2
 /** Roughly how many source pixels one column shows: a small picture is not stretched wider than this. */
 const PIXELS_PER_COLUMN = 9
 
-/** The box of cells a picture fills, keeping its aspect ratio within both caps. */
+/**
+ * The box of cells a picture fills, keeping its aspect ratio within both caps.
+ * `cellAspect` is a cell's height over its width: the picture is stretched to
+ * fill its box, so a wrong one draws it too tall or too flat.
+ */
 export function fitCells(
   width: number,
   height: number,
   maxColumns: number,
   maxRows: number,
+  cellAspect: number = DEFAULT_CELL_ASPECT,
 ): { columns: number; rows: number } {
   const clamp = (value: number, low: number, high: number): number => Math.min(high, Math.max(low, value))
-  const rowsPerColumn = (height / width) * CELL_ASPECT
+  const rowsPerColumn = height / width / cellAspect
   let columns = clamp(Math.round(width / PIXELS_PER_COLUMN), 2, maxColumns)
   let rows = Math.max(1, Math.round(columns * rowsPerColumn))
 

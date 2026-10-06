@@ -96,6 +96,11 @@ describe('fitCells', () => {
   test('a small picture is not stretched to the full width', async () => {
     expect(fitCells(90, 90, 80, 24)).toEqual({ columns: 10, rows: 5 })
   })
+
+  test('a measured cell shape sets the rows: taller cells take fewer rows', async () => {
+    expect(fitCells(600, 600, 80, 24, 2.5)).toEqual({ columns: 60, rows: 24 })
+    expect(fitCells(720, 360, 80, 24, 2.5)).toEqual({ columns: 80, rows: 16 })
+  })
 })
 
 describe('imagesInOutput', () => {

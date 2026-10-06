@@ -29,6 +29,7 @@ Formats: PNG, JPEG, GIF (first frame), WebP, BMP, TIFF, HEIC. A path that does n
   - macOS: nothing to install (uses the built-in `sips`).
   - Linux: ImageMagick 7 (`magick`) or 6 (`convert` and `identify`). HEIC needs ImageMagick built with libheif. The converter commands are tested against ImageMagick 7.1 on Debian 13.
   - `curl`, for remote images.
+- **`python3`, optional**, to measure the terminal's cell shape. Without it, or where the terminal reports no pixel size, cells are taken to be twice as tall as wide.
 
 ## Install
 
@@ -86,12 +87,13 @@ If you accept that risk, turn on **Auto-load remote images**:
 | A dim file name where the picture should be | Claude Code does not draw images in this terminal | Use kitty or Ghostty; inside herdr, set `CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1` (see [Requirements](#requirements)) |
 | A blank box where the picture should be | The terminal received the picture but could not draw it | Usually a multiplexer that does not pass kitty graphics through |
 | `no image converter found` | Linux without ImageMagick | Install ImageMagick |
-| The test card's circle is an ellipse | Your font's cells are not about twice as tall as wide | Adjust `CELL_ASPECT` in `hooks/refs.ts` and open an issue with your terminal and font |
+| The test card's circle is an ellipse | The cell shape could not be measured (no `python3`, or the terminal reports no pixel size), and your font's cells are not about twice as tall as wide | Install `python3`, or open an issue with your terminal and font |
 | `/img` is not a command | The plugin did not load | Check `claude plugin list`, trust the workspace, start a new session |
 
 ## How it works
 
 - `ui.render` hooks on assistant replies, tool results, collapsed tool groups and the `/img` output append an `Image` element under the engine's own drawing. The stored conversation is never changed, so the model sees exactly what it saw before.
+- Each picture's box of cells is sized from the cell's real shape: the terminal's window size in rows, columns and pixels (`TIOCGWINSZ` on Claude Code's tty, read with `python3`). It is measured at session start and again when the viewport's width changes, such as after a font zoom, so a line height setting (Ghostty's `adjust-cell-height`) does not stretch pictures.
 - Converting and downloading happen in the background, never while drawing. A row first shows `loading image`, then redraws once the picture is ready.
 - Files are sniffed by their first bytes, and only the formats above reach a converter. ImageMagick is always told the format (`jpeg:file[0]`), so it never chooses a decoder from file contents.
 - A path under a host-keyed automount root (`/net`, `/Network`) is never touched, since even checking whether it exists makes the machine contact the host named in it. Paths are resolved one component at a time from directory listings, which show a link as a link; a link's target is read with `readlink` and checked before it is followed. So a route through a link to `/` (`/Volumes/Macintosh HD`, `/proc/self/root`) or a link in a cloned repository (`docs/diagram.png -> /net/<host>/x.png`) is caught too. Downloads run `curl` with URL globbing off and only `http`/`https` allowed, for redirects too.
